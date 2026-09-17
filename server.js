@@ -4,62 +4,76 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-    cors: { origin: "*" }
-});
+const io = new Server(server, { cors: { origin: "*" } });
 
-app.use(express.static(__dirname + '/public'));
-
-// Estado do Jogo
 const players = {};
 const bases = {};
 let eggs = [
-    { id: 'egg1', x: 400, y: 250, color: 'gold', name: 'Ovo Dourado', points: 50 },
-    { id: 'egg2', x: 200, y: 200, color: 'purple', name: 'Ovo Raro', points: 30 },
-    { id: 'egg3', x: 600, y: 300, color: 'green', name: 'Ovo Comum', points: 10 }
+    { id: 'egg1', x: 400, y: 200, color: '#ffd700', name: 'Ovo Dourado', rarity: 'Raro' },
+    { id: 'egg2', x: 250, y: 220, color: '#a855f7', name: 'Ovo Mágico', rarity: 'Épico' },
+    { id: 'egg3', x: 550, y: 250, color: '#3b82f6', name: 'Ovo Comum', rarity: 'Comum' }
 ];
 
-io.on('connection', (socket) => {
-    console.log(`Jogador conectado: ${socket.id}`);
+// Re-gera novos ovos na arena central se acabar
+function checkAndRespawnEggs() {
+    if (eggs.length < 3) {
+        const types = [
+            { color: '#3b82f6', name: 'Ovo Comum', rarity: 'Comum' },
+            { color: '#a855f7', name: 'Ovo Mágico', rarity: 'Épico' },
+            { color: '#ffd700', name: 'Ovo Dourado', rarity: 'Raro' }
+        ];
+        const randomType = types[Math.floor(Math.random() * types.length)];
+        eggs.push({
+            id: 'egg_' + Date.now(),
+            x: 200 + Math.random() * 400,
+            y: 180 + Math.random() * 100,
+            ...randomType
+        });
+        io.emit('updateEggs', eggs);
+    }
+}
 
-    // Criação/Registro do Jogador
+io.on('connection', (socket) => {
     socket.on('joinGame', (data) => {
         const playerName = data.name || `Player_${socket.id.substring(0, 4)}`;
         
-        // Atribui uma posição inicial e uma base personalizada
         players[socket.id] = {
             id: socket.id,
             name: playerName,
-            x: 100 + Math.random() * 600,
-            y: 300 + Math.random() * 200,
+            x: 100 + (Object.keys(players).length * 80) % 600,
+            y: 450,
+            speed: 3, // Velocidade inicial
+            coins: 0,
             color: `#${Math.floor(Math.random()*16777215).toString(16)}`,
-            hasEgg: null // Guarda o ovo se estiver segurando
+            hasEgg: null
         };
 
+        // Posição fixa da base para cada jogador
+        const baseIndex = Object.keys(bases).length;
         bases[socket.id] = {
             ownerId: socket.id,
             ownerName: playerName,
-            x: 50 + (Object.keys(bases).length * 100) % 700,
-            y: 500,
-            stolenEggs: []
+            x: 80 + (baseIndex * 140) % 700,
+            y: 480,
+            treadmillLevel: 1,
+            pets: [] // Guardará os pets chocados que geram moedas
         };
 
         socket.emit('init', { id: socket.id, players, eggs, bases });
         socket.broadcast.emit('playerJoined', { player: players[socket.id], base: bases[socket.id] });
     });
 
-    // Movimentação recebida do cliente
+    // Movimentação
     socket.on('move', (movement) => {
         const player = players[socket.id];
         if (!player) return;
 
-        const speed = 4;
-        if (movement.up && player.y > 150) player.y -= speed;
-        if (movement.down && player.y < 580) player.y += speed;
-        if (movement.left && player.x > 20) player.x -= speed;
-        if (movement.right && player.x < 780) player.x += speed;
+        const spd = player.speed;
+        if (movement.up && player.y > 160) player.y -= spd;
+        if (movement.down && player.y < 570) player.y += spd;
+        if (movement.left && player.x > 20) player.x -= spd;
+        if (movement.right && player.x < 780) player.x += spd;
 
-        // Se o jogador está carregando um ovo, o ovo segue ele
         if (player.hasEgg) {
             player.hasEgg.x = player.x;
             player.hasEgg.y = player.y - 10;
@@ -68,56 +82,67 @@ io.on('connection', (socket) => {
         io.emit('playerMoved', { id: socket.id, x: player.x, y: player.y, hasEgg: player.hasEgg });
     });
 
-    // Ação: Pegar ou Roubar Ovo
+    // Ações: Pegar ovo / Chocar na Base / Usar Esteira
     socket.on('interact', () => {
         const player = players[socket.id];
-        if (!player) return;
+        const base = bases[socket.id];
+        if (!player || !base) return;
 
-        // Se já está com um ovo, tenta depositar na sua base
+        // 1. Usar a Esteira para treinar velocidade
+        const distToTreadmill = Math.hypot(player.x - (base.x - 20), player.y - base.y);
+        if (distToTreadmill < 25) {
+            player.speed += 0.2; // Aumenta velocidade
+            io.emit('speedUpgraded', { playerId: socket.id, speed: player.speed });
+            return;
+        }
+
+        // 2. Chocar o Ovo na Incubadora da Base
         if (player.hasEgg) {
-            const playerBase = bases[socket.id];
-            const distToBase = Math.hypot(player.x - playerBase.x, player.y - playerBase.y);
-            
-            if (distToBase < 50) {
-                playerBase.stolenEggs.push(player.hasEgg);
+            const distToBase = Math.hypot(player.x - base.x, player.y - base.y);
+            if (distToBase < 40) {
+                // Transforma o ovo em um Pet que gera dinheiro!
+                base.pets.push({
+                    name: `Pet ${player.hasEgg.name}`,
+                    color: player.hasEgg.color,
+                    income: player.hasEgg.rarity === 'Épico' ? 5 : (player.hasEgg.rarity === 'Raro' ? 3 : 1)
+                });
                 player.hasEgg = null;
-                io.emit('eggDeposited', { playerId: socket.id, bases });
+                io.emit('eggHatched', { playerId: socket.id, bases, hasEgg: null });
             }
             return;
         }
 
-        // Tenta pegar um ovo do centro do mapa
+        // 3. Roubar Ovo do Centro
         eggs.forEach((egg, index) => {
             const dist = Math.hypot(player.x - egg.x, player.y - egg.y);
-            if (dist < 30) {
+            if (dist < 30 && !player.hasEgg) {
                 player.hasEgg = egg;
                 eggs.splice(index, 1);
                 io.emit('eggStolen', { playerId: socket.id, eggId: egg.id, eggs });
-            }
-        });
-
-        // Tenta roubar um ovo da base de outro jogador
-        Object.keys(bases).forEach(baseOwnerId => {
-            if (baseOwnerId !== socket.id && !player.hasEgg) {
-                const targetBase = bases[baseOwnerId];
-                const distToBase = Math.hypot(player.x - targetBase.x, player.y - targetBase.y);
-                
-                if (distToBase < 40 && targetBase.stolenEggs.length > 0) {
-                    const stolen = targetBase.stolenEggs.pop();
-                    player.hasEgg = stolen;
-                    io.emit('baseRobbed', { playerId: socket.id, victimId: baseOwnerId, egg: stolen, bases });
-                }
+                setTimeout(checkAndRespawnEggs, 5000);
             }
         });
     });
 
-    // Desconexão
     socket.on('disconnect', () => {
         delete players[socket.id];
         delete bases[socket.id];
         io.emit('playerLeft', socket.id);
     });
 });
+
+// Loop Passivo: Pets geram moedas a cada 2 segundos
+setInterval(() => {
+    Object.keys(bases).forEach(socketId => {
+        const base = bases[socketId];
+        const player = players[socketId];
+        if (base && player && base.pets.length > 0) {
+            const totalIncome = base.pets.reduce((acc, pet) => acc + pet.income, 0);
+            player.coins += totalIncome;
+        }
+    });
+    io.emit('updateCoins', players);
+}, 2000);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
