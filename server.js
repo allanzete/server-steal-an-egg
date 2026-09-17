@@ -53,13 +53,10 @@ setInterval(() => {
     Object.keys(bosses).forEach(zoneId => {
         const boss = bosses[zoneId];
         const zone = zones[zoneId];
-        
         let targetPlayer = null;
 
-        // Procura quem roubou ovo nessa área
         Object.values(players).forEach(p => {
             if (p.hasEgg && p.hasEgg.zone == zoneId) {
-                // Se o jogador estiver na área segura (Y < 350), o bicho NÃO persegue
                 if (p.y > 350) {
                     const dist = Math.hypot(p.x - boss.x, p.y - boss.y);
                     if (dist < boss.visionRadius) targetPlayer = p;
@@ -68,15 +65,12 @@ setInterval(() => {
         });
 
         if (targetPlayer) {
-            // Persegue o jogador
             const angle = Math.atan2(targetPlayer.y - boss.y, targetPlayer.x - boss.x);
             boss.x += Math.cos(angle) * zone.bossSpeed;
             boss.y += Math.sin(angle) * zone.bossSpeed;
 
-            // Se o bicho pegar o jogador fora da área segura
             const hitDist = Math.hypot(targetPlayer.x - boss.x, targetPlayer.y - boss.y);
             if (hitDist < 30) {
-                // Jogador perde o ovo e volta pra base
                 targetPlayer.hasEgg = null;
                 const base = bases[targetPlayer.id];
                 if (base) { targetPlayer.x = base.x; targetPlayer.y = base.y - 50; }
@@ -107,19 +101,20 @@ io.on('connection', (socket) => {
         const baseIndex = Object.keys(bases).length;
         
         const baseX = 200 + (baseIndex * 220);
-        const baseY = 200; // Toda base fica dentro da SAFE ZONE (Y < 350)
+        const baseY = 200;
 
         players[socket.id] = {
             id: socket.id,
             name: playerName,
             x: baseX,
             y: baseY + 50,
-            speedStat: 10, // Stat numérico de velocidade (Não é pixels diretos)
+            speedStat: 10,
             level: 1,
             xp: 0,
             coins: 0,
             color: `#${Math.floor(Math.random()*16777215).toString(16)}`,
-            hasEgg: null
+            hasEgg: null,
+            isSlow: false
         };
 
         bases[socket.id] = {
@@ -134,24 +129,29 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('playerJoined', { player: players[socket.id], base: bases[socket.id] });
     });
 
-    socket.on('move', (movement) => {
+    socket.on('move', (data) => {
         const player = players[socket.id];
         if (!player) return;
 
-        // Fórmula: Stat de velocidade convertido para movimentação no canvas
-        const realMoveSpeed = 3 + (player.speedStat * 0.15);
+        player.isSlow = !!data.slow;
 
-        if (movement.up && player.y > 50) player.y -= realMoveSpeed;
-        if (movement.down && player.y < 1700) player.y += realMoveSpeed;
-        if (movement.left && player.x > 50) player.x -= realMoveSpeed;
-        if (movement.right && player.x < 1950) player.x += realMoveSpeed;
+        // Se estiver com Modo Lento ligado (SHIFT), anda a 30% da velocidade
+        let realMoveSpeed = 3 + (player.speedStat * 0.15);
+        if (player.isSlow) {
+            realMoveSpeed *= 0.3;
+        }
+
+        if (data.up && player.y > 50) player.y -= realMoveSpeed;
+        if (data.down && player.y < 1700) player.y += realMoveSpeed;
+        if (data.left && player.x > 50) player.x -= realMoveSpeed;
+        if (data.right && player.x < 1950) player.x += realMoveSpeed;
 
         if (player.hasEgg) {
             player.hasEgg.x = player.x;
             player.hasEgg.y = player.y - 15;
         }
 
-        io.emit('playerMoved', { id: socket.id, x: player.x, y: player.y, hasEgg: player.hasEgg });
+        io.emit('playerMoved', { id: socket.id, x: player.x, y: player.y, hasEgg: player.hasEgg, isSlow: player.isSlow });
     });
 
     socket.on('interact', () => {
@@ -159,13 +159,12 @@ io.on('connection', (socket) => {
         const base = bases[socket.id];
         if (!player || !base) return;
 
-        // 1. Usar Esteira (Aumenta Stat de Velocidade + XP)
+        // Usar Esteira
         const distTreadmill = Math.hypot(player.x - (base.x - 30), player.y - base.y);
         if (distTreadmill < 40) {
             player.speedStat += 1;
             player.xp += 15;
 
-            // Level Up
             if (player.xp >= player.level * 100) {
                 player.level += 1;
                 player.xp = 0;
@@ -175,13 +174,12 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // 2. Trazer Ovo até a Parte Segura e Depositar na Base
+        // Depositar Ovo
         if (player.hasEgg) {
             const distBase = Math.hypot(player.x - base.x, player.y - base.y);
             if (distBase < 50) {
-                // Sorteia Pet com Emoji e Mutação
                 const petEmoji = petEmojis[Math.floor(Math.random() * petEmojis.length)];
-                const hasMutation = Math.random() < 0.3; // 30% de chance
+                const hasMutation = Math.random() < 0.3;
                 const mutation = hasMutation ? mutations[Math.floor(Math.random() * (mutations.length - 1)) + 1] : 'Nenhuma';
                 const baseValue = player.hasEgg.zone * 5;
                 const finalValue = hasMutation ? baseValue * 3 : baseValue;
@@ -200,7 +198,7 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // 3. Pegar Ovo das Áreas
+        // Pegar Ovo
         eggs.forEach((egg, idx) => {
             const dist = Math.hypot(player.x - egg.x, player.y - egg.y);
             if (dist < 35 && !player.hasEgg) {
