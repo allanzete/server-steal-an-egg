@@ -14,7 +14,7 @@ const CONFIG = {
     TICK_RATE: 1000 / 30,
     INCOME_INTERVAL: 2000,
     MAP_WIDTH: 2000,
-    MAP_HEIGHT: 1800,
+    MAP_HEIGHT: 3200,          // Mapa bem maior agora
     SAFE_ZONE_Y: 350,
     BASE_Y: 180,
     BASE_SPACING: 240,
@@ -22,8 +22,8 @@ const CONFIG = {
     BOSS_HIT_RADIUS: 32,
     TREADMILL_RADIUS: 45,
     DEPOSIT_RADIUS: 55,
-    MAX_EGGS: 6,
-    EGG_RESPAWN_DELAY: 3500
+    MAX_EGGS: 9,
+    EGG_RESPAWN_DELAY: 3200
 };
 
 const ZONES = {
@@ -33,7 +33,7 @@ const ZONES = {
         yStart: 400,
         yEnd: 800,
         eggColor: '#4caf50',
-        bossSpeed: 2.4,
+        bossSpeed: 2.3,
         rarity: 'Comum',
         valueMultiplier: 1
     },
@@ -43,7 +43,7 @@ const ZONES = {
         yStart: 800,
         yEnd: 1200,
         eggColor: '#ff9800',
-        bossSpeed: 3.3,
+        bossSpeed: 3.1,
         rarity: 'Raro',
         valueMultiplier: 2
     },
@@ -51,21 +51,53 @@ const ZONES = {
         name: 'Vulcão Difícil',
         color: '#b71c1c',
         yStart: 1200,
-        yEnd: 1700,
+        yEnd: 1650,
         eggColor: '#f44336',
-        bossSpeed: 4.6,
+        bossSpeed: 4.2,
         rarity: 'Épico',
-        valueMultiplier: 3
+        valueMultiplier: 3.5
+    },
+    4: {
+        name: 'Tundra Congelada',
+        color: '#0277bd',
+        yStart: 1650,
+        yEnd: 2150,
+        eggColor: '#4fc3f7',
+        bossSpeed: 5.0,
+        rarity: 'Lendário',
+        valueMultiplier: 5.5
+    },
+    5: {
+        name: 'Ruínas Abissais',
+        color: '#4a148c',
+        yStart: 2150,
+        yEnd: 2650,
+        eggColor: '#ce93d8',
+        bossSpeed: 5.8,
+        rarity: 'Mítico',
+        valueMultiplier: 8
+    },
+    6: {
+        name: 'Portal do Caos',
+        color: '#880e4f',
+        yStart: 2650,
+        yEnd: 3200,
+        eggColor: '#f48fb1',
+        bossSpeed: 6.8,
+        rarity: 'Divino',
+        valueMultiplier: 12
     }
 };
 
-const PET_EMOJIS = ['🐶', '🐱', '🦊', '🐼', '🐨', '🦄', '🤖', '👾', '🐲', '🦁', '🐯', '🐸'];
+const PET_EMOJIS = ['🐶','🐱','🦊','🐼','🐨','🦄','🤖','👾','🐲','🦁','🐯','🐸','🐙','🦋','🦅','🐺'];
 const MUTATIONS = [
     { name: 'Nenhuma', multiplier: 1 },
-    { name: 'Dourado ✨', multiplier: 2.5 },
-    { name: 'Gigante 🐘', multiplier: 2 },
-    { name: 'Radioativo ☢️', multiplier: 3 },
-    { name: 'Cósmico 🌌', multiplier: 4 }
+    { name: 'Dourado ✨', multiplier: 2.2 },
+    { name: 'Gigante 🐘', multiplier: 1.8 },
+    { name: 'Radioativo ☢️', multiplier: 2.8 },
+    { name: 'Cósmico 🌌', multiplier: 3.5 },
+    { name: 'Sombrio 🌑', multiplier: 4.2 },
+    { name: 'Divino 👑', multiplier: 6 }
 ];
 
 // ====================== ESTADO ======================
@@ -75,9 +107,12 @@ let eggs = [];
 let nextEggId = 1;
 
 const bosses = {
-    1: { id: 1, x: 1000, y: 600, visionRadius: 190, targetId: null, emoji: '🐊' },
-    2: { id: 2, x: 1000, y: 1000, visionRadius: 230, targetId: null, emoji: '🦁' },
-    3: { id: 3, x: 1000, y: 1450, visionRadius: 270, targetId: null, emoji: '🐉' }
+    1: { id: 1, x: 1000, y: 600,  visionRadius: 185, targetId: null, emoji: '🐊' },
+    2: { id: 2, x: 1000, y: 1000, visionRadius: 215, targetId: null, emoji: '🦁' },
+    3: { id: 3, x: 1000, y: 1425, visionRadius: 245, targetId: null, emoji: '🐉' },
+    4: { id: 4, x: 1000, y: 1900, visionRadius: 270, targetId: null, emoji: '🐻‍❄️' },
+    5: { id: 5, x: 1000, y: 2400, visionRadius: 295, targetId: null, emoji: '🐙' },
+    6: { id: 6, x: 1000, y: 2920, visionRadius: 320, targetId: null, emoji: '👾' }
 };
 
 // ====================== FUNÇÕES ======================
@@ -113,14 +148,27 @@ function createPlayer(socketId, name) {
 function spawnEgg(forceZone = null) {
     if (eggs.length >= CONFIG.MAX_EGGS) return;
 
-    const zoneId = forceZone || (Math.floor(Math.random() * 3) + 1);
+    // Chance maior de spawnar nas zonas mais fáceis no começo
+    let zoneId;
+    if (forceZone) {
+        zoneId = forceZone;
+    } else {
+        const roll = Math.random();
+        if (roll < 0.28) zoneId = 1;
+        else if (roll < 0.50) zoneId = 2;
+        else if (roll < 0.68) zoneId = 3;
+        else if (roll < 0.82) zoneId = 4;
+        else if (roll < 0.93) zoneId = 5;
+        else zoneId = 6;
+    }
+
     const zone = ZONES[zoneId];
 
     eggs.push({
         id: `e${nextEggId++}`,
         zone: zoneId,
-        x: 600 + Math.random() * 900,
-        y: zone.yStart + 80 + Math.random() * (zone.yEnd - zone.yStart - 160),
+        x: 550 + Math.random() * 950,
+        y: zone.yStart + 70 + Math.random() * (zone.yEnd - zone.yStart - 140),
         color: zone.eggColor,
         name: `Ovo ${zone.rarity}`
     });
@@ -133,8 +181,8 @@ function dropEgg(player) {
 
     eggs.push({
         ...player.hasEgg,
-        x: player.x + (Math.random() * 40 - 20),
-        y: player.y + (Math.random() * 40 - 20)
+        x: player.x + (Math.random() * 50 - 25),
+        y: player.y + (Math.random() * 50 - 25)
     });
 
     player.hasEgg = null;
@@ -174,8 +222,9 @@ setInterval(() => {
             boss.x += Math.cos(angle) * zone.bossSpeed;
             boss.y += Math.sin(angle) * zone.bossSpeed;
 
-            boss.y = Math.max(zone.yStart + 30, Math.min(zone.yEnd - 30, boss.y));
-            boss.x = Math.max(100, Math.min(CONFIG.MAP_WIDTH - 100, boss.x));
+            // Mantém o boss dentro da sua zona
+            boss.y = Math.max(zone.yStart + 40, Math.min(zone.yEnd - 40, boss.y));
+            boss.x = Math.max(120, Math.min(CONFIG.MAP_WIDTH - 120, boss.x));
 
             if (Math.hypot(target.x - boss.x, target.y - boss.y) < CONFIG.BOSS_HIT_RADIUS) {
                 dropEgg(target);
@@ -186,7 +235,7 @@ setInterval(() => {
                 }
                 io.emit('playerCaught', {
                     playerId: target.id,
-                    message: 'O bicho te pegou! O ovo caiu no chão!'
+                    message: `O ${boss.emoji} te pegou! O ovo caiu no chão!`
                 });
             }
         }
@@ -207,8 +256,8 @@ setInterval(() => {
 }, CONFIG.INCOME_INTERVAL);
 
 setInterval(() => {
-    if (eggs.length < 3) spawnEgg();
-}, 5000);
+    if (eggs.length < 4) spawnEgg();
+}, 4500);
 
 // ====================== SOCKETS ======================
 io.on('connection', (socket) => {
@@ -236,8 +285,8 @@ io.on('connection', (socket) => {
 
         player.isSlow = !!data.slow;
 
-        let speed = 3.2 + (player.speedStat * 0.14);
-        if (player.isSlow) speed *= 0.28;
+        let speed = 3.15 + (player.speedStat * 0.135);
+        if (player.isSlow) speed *= 0.27;
 
         if (data.up && player.y > 40) player.y -= speed;
         if (data.down && player.y < CONFIG.MAP_HEIGHT - 40) player.y += speed;
@@ -276,12 +325,12 @@ io.on('connection', (socket) => {
         if (player.hasEgg) {
             if (Math.hypot(player.x - base.x, player.y - base.y) < CONFIG.DEPOSIT_RADIUS) {
                 const zone = ZONES[player.hasEgg.zone];
-                const hasMutation = Math.random() < 0.28;
+                const hasMutation = Math.random() < 0.26;
                 const mutation = hasMutation
                     ? MUTATIONS[Math.floor(Math.random() * (MUTATIONS.length - 1)) + 1]
                     : MUTATIONS[0];
 
-                const finalValue = Math.round(zone.valueMultiplier * 6 * mutation.multiplier);
+                const finalValue = Math.round(zone.valueMultiplier * 7 * mutation.multiplier);
 
                 base.pets.push({
                     emoji: PET_EMOJIS[Math.floor(Math.random() * PET_EMOJIS.length)],
@@ -289,7 +338,7 @@ io.on('connection', (socket) => {
                     value: finalValue
                 });
 
-                addXP(player, 55 + (zone.valueMultiplier * 15));
+                addXP(player, 50 + (zone.valueMultiplier * 18));
                 player.hasEgg = null;
 
                 io.emit('eggHatched', {
@@ -331,10 +380,10 @@ io.on('connection', (socket) => {
     });
 });
 
-// Spawn inicial
-for (let i = 0; i < 4; i++) spawnEgg();
+// Spawn inicial (mais ovos por causa do mapa maior)
+for (let i = 0; i < 6; i++) spawnEgg();
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`🥚 Servidor "Roube um Ovo" rodando na porta ${PORT}`);
+    console.log(`🥚 Servidor "Roube um Ovo" rodando na porta ${PORT} (6 zonas)`);
 });
